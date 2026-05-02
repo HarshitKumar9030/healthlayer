@@ -118,7 +118,8 @@ export const MCP = {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    // Endpoint where POST messages should be sent
+    // Endpoint where POST messages should be sent. 
+    // We use a relative path so the client resolves it safely across proxies.
     const transport = new NextJS_SSE_Transport('/api/mcp/messages');
     activeTransports.set(transport.sessionId, transport);
     
@@ -148,10 +149,10 @@ export const MCP = {
   },
 
   handlePost: async (request: Request) => {
-    const { searchParams } = new URL(request.url);
-    const sessionId = searchParams.get('sessionId');
+    const urlObj = new URL(request.url);
+    const sessionId = urlObj.searchParams.get('sessionId');
     if (!sessionId) {
-      return new Response('Missing sessionId', { status: 400 });
+      return new Response(`Missing sessionId. Target URL: ${request.url}`, { status: 400 });
     }
 
     const transport = activeTransports.get(sessionId);

@@ -24,11 +24,3 @@ export async function GET(request: Request) {
   return response;
 }
 
-export async function POST(request: Request) {
-  // Handle client-led messages
-  const response = await MCP.handlePost(request);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    response.headers.set(key, value);
-  });
-  return response;
-}

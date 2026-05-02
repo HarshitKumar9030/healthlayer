@@ -18,9 +18,22 @@ export class NextJS_SSE_Transport implements Transport {
       start: (controller) => {
         this.controller = controller;
         // Send the endpoint event
-        const url = new URL(this.endpoint, 'http://localhost');
+        let url;
+        try {
+          // If this.endpoint is already absolute, use it
+          url = new URL(this.endpoint);
+        } catch {
+          url = new URL(this.endpoint, 'http://localhost');
+        }
         url.searchParams.set('sessionId', this.sessionId);
-        this.writeEvent('endpoint', url.pathname + url.search);
+        
+        // Construct the final URL string to send to the client
+        // If it was absolute, send the whole URL. Otherwise send relative.
+        const output = url.origin !== 'http://localhost' 
+          ? url.toString() 
+          : url.pathname + url.search;
+          
+        this.writeEvent('endpoint', output);
       },
       cancel: () => {
         this.onclose?.();
