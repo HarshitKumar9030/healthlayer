@@ -8,7 +8,22 @@ import { authenticateRequest } from './auth';
 import { uploadAndProcessReport } from '@/actions/upload';
 import type { Observation } from '@/types';
 
-function createServer() {
+type FhirContext = {
+  serverUrl?: string;
+  accessToken?: string;
+  patientId?: string;
+  refreshToken?: string;
+  refreshUrl?: string;
+};
+
+type SessionContext = {
+  auth: {
+    userId: string;
+  };
+  fhir?: FhirContext;
+};
+
+function createServer(sessionContext: SessionContext) {
   const server = new Server(
     {
       name: 'healthlayer-reports-server',
@@ -76,10 +91,8 @@ function createServer() {
     };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    // Auth check via custom passed properties?
-    // Extra should contain our authenticated user info we injected!
-    const { userId } = (extra as any).auth || {};
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { userId } = sessionContext.auth;
     if (!userId) {
       throw new Error('Unauthorized or unauthenticated context in CallToolRequest');
     }
@@ -154,12 +167,15 @@ function createServer() {
 
 // Global state to store active SSE connections in development/serverless
 const activeTransports = new Map<string, NextJS_SSE_Transport>();
-const mcpServer = createServer();
+const activeSessionContexts = new Map<string, SessionContext>();
 
 export const MCP = {
   handleGet: async (request: Request) => {
     const authResult = await authenticateRequest(request as any);
     if (!authResult) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    if (!authResult.userId) {
       return new Response('Unauthorized', { status: 401 });
     }
 
@@ -171,10 +187,14 @@ export const MCP = {
     const baseUrl = `${protocol}://${host}`;
     const transport = new NextJS_SSE_Transport(`${baseUrl}/api/mcp/messages`);
     activeTransports.set(transport.sessionId, transport);
+    activeSessionContexts.set(transport.sessionId, {
+      auth: { userId: authResult.userId },
+    });
     
     // Auto-cleanup on close
     transport.onclose = () => {
       activeTransports.delete(transport.sessionId);
+      activeSessionContexts.delete(transport.sessionId);
     };
 
     // Connect the transport to our server singleton!
@@ -182,15 +202,8 @@ export const MCP = {
     // Wait, Server handles ONE transport at a time usually? 
     // No, new Server can connect to multiple transports or we need to instantiate Server per transport?
     // Actually, Server.connect() accepts one transport. If we need multiple clients, we must create a new Server instance per connection!
-    const sessionServer = createServer();
-    
-    // We can inject auth context
-    const originalOnMessage = transport.onmessage;
-    transport.onmessage = (message, extra) => {
-      if (originalOnMessage) {
-        originalOnMessage(message, Object.assign({}, extra, { auth: authResult }));
-      }
-    };
+    const sessionContext = activeSessionContexts.get(transport.sessionId)!;
+    const sessionServer = createServer(sessionContext);
     
     sessionServer.connect(transport);
     
@@ -208,6 +221,10 @@ export const MCP = {
     if (!transport) {
       return new Response('Session not found', { status: 404 });
     }
+    const sessionContext = activeSessionContexts.get(sessionId);
+    if (!sessionContext?.auth?.userId) {
+      return new Response('Unauthorized session context', { status: 401 });
+    }
 
     try {
       const body = await request.json();
@@ -219,18 +236,15 @@ export const MCP = {
       const fhirRefreshToken = request.headers.get('x-fhir-refresh-token') || undefined;
       const fhirRefreshUrl = request.headers.get('x-fhir-refresh-url') || undefined;
 
-      const extra: any = {
-        fhir: {
-          serverUrl: fhirServer,
-          accessToken: fhirAccessToken,
-          patientId: fhirPatientId,
-          refreshToken: fhirRefreshToken,
-          refreshUrl: fhirRefreshUrl,
-        },
-        headers: Object.fromEntries(request.headers.entries()),
+      sessionContext.fhir = {
+        serverUrl: fhirServer,
+        accessToken: fhirAccessToken,
+        patientId: fhirPatientId,
+        refreshToken: fhirRefreshToken,
+        refreshUrl: fhirRefreshUrl,
       };
 
-      await transport.handlePostMessage(body, extra as any);
+      await transport.handlePostMessage(body);
       return new Response('Accepted', { status: 202 });
     } catch (err) {
       return new Response('Error parsing message', { status: 400 });
