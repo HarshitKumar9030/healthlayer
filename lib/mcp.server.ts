@@ -23,6 +23,175 @@ type SessionContext = {
   fhir?: FhirContext;
 };
 
+type RiskAssessment = {
+  risk_level: 'low' | 'moderate' | 'high';
+  factors: string[];
+  explanation: string;
+  patient_id?: string;
+  source: 'fhir-context' | 'stored-reports' | 'merged';
+};
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function getObservationValue(resource: any): { value: number | string | null; unit?: string } {
+  const quantity = resource?.valueQuantity;
+  if (quantity && typeof quantity === 'object') {
+    return {
+      value: quantity.value ?? null,
+      unit: quantity.unit || quantity.code || undefined,
+    };
+  }
+
+  if (resource?.valueString != null) return { value: resource.valueString };
+  if (resource?.valueCodeableConcept?.text != null) return { value: resource.valueCodeableConcept.text };
+  if (resource?.valueInteger != null) return { value: resource.valueInteger };
+  if (resource?.valueBoolean != null) return { value: resource.valueBoolean ? 'true' : 'false' };
+  return { value: null };
+}
+
+function mapFhirObservation(resource: any): Observation | null {
+  if (!resource || resource.resourceType !== 'Observation') return null;
+  const codeText = resource?.code?.text || resource?.code?.coding?.[0]?.display || resource?.code?.coding?.[0]?.code;
+  if (!codeText) return null;
+
+  const { value, unit } = getObservationValue(resource);
+  const flag = (() => {
+    const interpretation = resource?.interpretation?.[0]?.coding?.[0]?.code?.toLowerCase();
+    if (interpretation === 'h') return 'high';
+    if (interpretation === 'l') return 'low';
+    if (interpretation === 'crit' || interpretation === 'critical') return 'critical';
+    return 'normal';
+  })();
+
+  return {
+    name: String(codeText),
+    value: value ?? '',
+    unit,
+    flag,
+    date: resource?.effectiveDateTime ? new Date(resource.effectiveDateTime) : undefined,
+  };
+}
+
+function scoreRiskFromObservations(observations: Observation[], patientId?: string): RiskAssessment {
+  const factors: string[] = [];
+  let score = 0;
+
+  for (const observation of observations) {
+    const name = observation.name.toLowerCase();
+    const numericValue = toNumber(observation.value);
+
+    if (observation.flag === 'critical') {
+      score += 3;
+      factors.push(`${observation.name} flagged critical`);
+      continue;
+    }
+
+    if (observation.flag === 'high') {
+      score += 2;
+      factors.push(`${observation.name} flagged high`);
+    }
+
+    if (observation.flag === 'low') {
+      score += 1;
+      factors.push(`${observation.name} flagged low`);
+    }
+
+    if (name.includes('cholesterol') || name.includes('ldl')) {
+      if (numericValue !== null && numericValue >= 160) {
+        score += 2;
+        factors.push(`elevated ${observation.name.toLowerCase()}`);
+      }
+      if (numericValue !== null && numericValue >= 190) {
+        score += 1;
+      }
+    }
+
+    if (name.includes('hdl')) {
+      if (numericValue !== null && numericValue < 40) {
+        score += 2;
+        factors.push('low HDL');
+      }
+    }
+
+    if (name.includes('glucose') || name.includes('a1c') || name.includes('hba1c')) {
+      if (numericValue !== null && numericValue >= 126) {
+        score += 2;
+        factors.push(`elevated ${observation.name.toLowerCase()}`);
+      }
+      if (numericValue !== null && numericValue >= 6.5 && name.includes('a1c')) {
+        score += 1;
+      }
+    }
+
+    if (name.includes('blood pressure') || name.includes('systolic')) {
+      if (numericValue !== null && numericValue >= 140) {
+        score += 2;
+        factors.push(`elevated ${observation.name.toLowerCase()}`);
+      }
+    }
+  }
+
+  const uniqueFactors = Array.from(new Set(factors));
+  const risk_level: RiskAssessment['risk_level'] = score >= 5 ? 'high' : score >= 2 ? 'moderate' : 'low';
+  const explanation =
+    risk_level === 'high'
+      ? 'Patient context shows multiple elevated or critical findings consistent with higher clinical risk.'
+      : risk_level === 'moderate'
+        ? 'Patient context shows one or more abnormal findings that merit follow-up.'
+        : 'Patient context does not currently show major abnormal findings in the available data.';
+
+  return {
+    risk_level,
+    factors: uniqueFactors,
+    explanation,
+    patient_id: patientId,
+    source: 'merged',
+  };
+}
+
+async function loadSessionObservations(userId: string, fhir?: FhirContext): Promise<Observation[]> {
+  const storedReports = await Report.find({ userId }).lean();
+  const storedObservations = storedReports.flatMap((r) => (r.structuredData?.observations || []) as Observation[]);
+
+  const patientId = fhir?.patientId;
+  const serverUrl = fhir?.serverUrl?.replace(/\/$/, '');
+  const accessToken = fhir?.accessToken;
+  const fhirObservations: Observation[] = [];
+
+  if (serverUrl && patientId && accessToken) {
+    try {
+      const response = await fetch(`${serverUrl}/Observation?patient=${encodeURIComponent(patientId)}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/fhir+json',
+        },
+      });
+
+      if (response.ok) {
+        const bundle = await response.json();
+        const entries = Array.isArray(bundle?.entry) ? bundle.entry : [];
+        for (const entry of entries) {
+          const observation = mapFhirObservation(entry?.resource);
+          if (observation) {
+            fhirObservations.push(observation);
+          }
+        }
+      }
+    } catch {
+      // Best-effort FHIR fetch; fall back to stored reports only.
+    }
+  }
+
+  return [...storedObservations, ...fhirObservations];
+}
+
 function createServer(sessionContext: SessionContext) {
   const server = new Server(
     {
@@ -36,7 +205,7 @@ function createServer(sessionContext: SessionContext) {
           'ai.promptopinion/fhir-context': {
             scopes: [
               { name: 'patient/Patient.rs', required: true },
-              { name: 'patient/Condition.rs' },
+              { name: 'patient/Observation.rs', required: true },
               { name: 'offline_access' }
             ]
           }
@@ -73,6 +242,14 @@ function createServer(sessionContext: SessionContext) {
               query: { type: 'string', description: 'The question to ask about the reports' },
             },
             required: ['query'],
+          },
+        },
+        {
+          name: 'analyze_patient_risk',
+          description: 'Analyze patient risk using context injected via FHIR headers and stored reports.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
           },
         },
         {
@@ -133,6 +310,14 @@ function createServer(sessionContext: SessionContext) {
       const answer = await queryObservations(allObservations as Observation[], query);
       return {
         content: [{ type: 'text', text: answer }],
+      };
+    }
+
+    if (request.params.name === 'analyze_patient_risk') {
+      const observations = await loadSessionObservations(userId, sessionContext.fhir);
+      const assessment = scoreRiskFromObservations(observations, sessionContext.fhir?.patientId);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(assessment, null, 2) }],
       };
     }
 
