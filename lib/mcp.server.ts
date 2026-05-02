@@ -5,6 +5,7 @@ import { connectDB } from './db';
 import { Report } from '@/models/Report';
 import { queryObservations } from './ai';
 import { authenticateRequest } from './auth';
+import { uploadAndProcessReport } from '@/actions/upload';
 import type { Observation } from '@/types';
 
 function createServer() {
@@ -59,6 +60,18 @@ function createServer() {
             required: ['query'],
           },
         },
+        {
+          name: 'upload_report',
+          description: 'Upload a report by URL for processing (server will fetch the file).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileUrl: { type: 'string', description: 'Publicly accessible URL to download the report file' },
+              filename: { type: 'string', description: 'Optional filename to save' },
+            },
+            required: ['fileUrl'],
+          },
+        },
       ],
     };
   });
@@ -107,6 +120,29 @@ function createServer() {
       const answer = await queryObservations(allObservations as Observation[], query);
       return {
         content: [{ type: 'text', text: answer }],
+      };
+    }
+
+    if (request.params.name === 'upload_report') {
+      const { fileUrl, filename } = request.params.arguments as { fileUrl: string; filename?: string };
+      if (!fileUrl) throw new Error('fileUrl is required');
+
+      // Download the file server-side and create a FormData compatible object
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) throw new Error(`Failed to download file: ${resp.status}`);
+      const arrayBuffer = await resp.arrayBuffer();
+      const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+
+      const blob = new Blob([arrayBuffer], { type: contentType });
+      const name = filename || (() => { try { return new URL(fileUrl).pathname.split('/').pop() || 'upload.bin'; } catch { return 'upload.bin'; } })();
+      const file = new File([blob], name, { type: contentType });
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const result = await uploadAndProcessReport(formData, userId);
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ success: result.success, reportId: result.reportId ?? null }) }],
       };
     }
     
