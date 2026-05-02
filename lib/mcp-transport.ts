@@ -72,9 +72,9 @@ export class NextJS_SSE_Transport implements Transport {
     this.writeEvent('message', JSON.stringify(message));
   }
 
-  async handlePostMessage(jsonBody: unknown) {
+  async handlePostMessage(jsonBody: unknown, extra?: MessageExtraInfo) {
     if (!jsonBody) throw new Error('No body');
-    // Just pass the parsed body to onmessage
-    this.onmessage?.(jsonBody as JSONRPCMessage);
+    // Pass the parsed body to onmessage, include any extra headers/info
+    this.onmessage?.(jsonBody as JSONRPCMessage, extra);
   }
 }

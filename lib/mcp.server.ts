@@ -16,6 +16,15 @@ function createServer() {
     {
       capabilities: {
         tools: {},
+        extensions: {
+          'ai.promptopinion/fhir-context': {
+            scopes: [
+              { name: 'patient/Patient.rs', required: true },
+              { name: 'patient/Condition.rs' },
+              { name: 'offline_access' }
+            ]
+          }
+        }
       },
     }
   );
@@ -118,9 +127,13 @@ export const MCP = {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    // Endpoint where POST messages should be sent. 
-    // We use a relative path so the client resolves it safely across proxies.
-    const transport = new NextJS_SSE_Transport('/api/mcp/messages');
+    // Endpoint where POST messages should be sent.
+    // We construct an absolute URL using the request headers to ensure clients like Cursor/Claude can resolve it.
+    const url = new URL(request.url);
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || url.host;
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
+    const baseUrl = `${protocol}://${host}`;
+    const transport = new NextJS_SSE_Transport(`${baseUrl}/api/mcp/messages`);
     activeTransports.set(transport.sessionId, transport);
     
     // Auto-cleanup on close
@@ -162,7 +175,26 @@ export const MCP = {
 
     try {
       const body = await request.json();
-      await transport.handlePostMessage(body);
+
+      // Extract PromptOpinion FHIR headers if present and forward them as extra info
+      const fhirServer = request.headers.get('x-fhir-server-url') || undefined;
+      const fhirAccessToken = request.headers.get('x-fhir-access-token') || undefined;
+      const fhirPatientId = request.headers.get('x-patient-id') || undefined;
+      const fhirRefreshToken = request.headers.get('x-fhir-refresh-token') || undefined;
+      const fhirRefreshUrl = request.headers.get('x-fhir-refresh-url') || undefined;
+
+      const extra: any = {
+        fhir: {
+          serverUrl: fhirServer,
+          accessToken: fhirAccessToken,
+          patientId: fhirPatientId,
+          refreshToken: fhirRefreshToken,
+          refreshUrl: fhirRefreshUrl,
+        },
+        headers: Object.fromEntries(request.headers.entries()),
+      };
+
+      await transport.handlePostMessage(body, extra as any);
       return new Response('Accepted', { status: 202 });
     } catch (err) {
       return new Response('Error parsing message', { status: 400 });
