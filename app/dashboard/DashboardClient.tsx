@@ -5,10 +5,11 @@ import { motion } from 'framer-motion';
 import gsap from 'gsap';
 import { UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
-import { ChevronRight, Key, Check, Copy } from 'lucide-react';
+import { ChevronRight, Key, Check, Copy, Eye, EyeOff, X, AlertCircle } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import ChatBot from '@/components/ChatBot';
 import HealthTimeline from '@/components/HealthTimeline';
+import HealthDistribution from '@/components/HealthDistribution';
 import { generateApiToken } from '@/actions/token';
 
 export default function DashboardClient({ reports, abnormalObservations, allObservations, initialToken }: { reports: any[], abnormalObservations: any[], allObservations: any[], initialToken?: string | null }) {
@@ -16,6 +17,8 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
   const [token, setToken] = useState<string | null>(initialToken || null);
   const [generatingToken, setGeneratingToken] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   
   const handleGenerateToken = async () => {
     setGeneratingToken(true);
@@ -105,53 +108,33 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
             whileHover={{ scale: 1.02 }}
             className="bg-[#EAF6ED] rounded-3xl p-8 gsap-fade-in" // Pastel Green
           >
-            <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">Ask box</p>
-            <p className="text-[#2B4B34] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">Markdown ready</p>
+            <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">Data points</p>
+            <p className="text-[#2B4B34] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{allObservations.length}</p>
           </motion.div>
         </section>
 
         {/* API Token Section */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-[#E8F0FE] rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 gsap-fade-in"
-        >
-          <div>
-            <h3 className="text-[#2A3F5C] text-xl font-bold mb-2 flex items-center gap-2">
-              <Key size={20} />
-              Extension API Token
-            </h3>
-            <p className="text-[#6B85A8] text-sm">
-              Use this token to authenticate the Chrome extension with your account. Do not share it.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            {token ? (
-              <div className="flex items-center bg-white rounded-xl overflow-hidden border border-[#D1E0F5] shadow-sm w-full md:w-auto">
-                <code className="px-4 py-3 text-sm text-[#2A3F5C] bg-[#F7FAFF] font-mono select-all">
-                  {token.slice(0, 8)}...{token.slice(-8)}
-                </code>
-                <button
-                  onClick={copyToken}
-                  className="px-4 py-3 hover:bg-[#E8F0FE] transition-colors text-[#6B85A8] border-l border-[#D1E0F5]"
-                  title="Copy token"
-                >
-                  {copiedToken ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
-                </button>
-              </div>
-            ) : (
-              <p className="text-[#6B85A8] text-sm italic py-3">No token generated</p>
-            )}
-            <button
-              onClick={handleGenerateToken}
-              disabled={generatingToken}
-              className="bg-[#2A3F5C] text-white px-5 py-3 rounded-xl text-sm font-medium hover:bg-[#1D2B44] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-            >
-              {generatingToken ? 'Generating...' : token ? 'Regenerate Token' : 'Generate Token'}
-            </button>
-          </div>
-        </motion.section>
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.2 }}
+           className="bg-[#2A3F5C] rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 text-white cursor-pointer hover:bg-[#1D2B44] transition-colors"
+           onClick={() => setIsKeyModalOpen(true)}
+         >
+           <div>
+             <h3 className="text-white text-xl font-bold mb-2 flex items-center gap-2">
+               <Key size={20} />
+               API Access & Integrations
+             </h3>
+             <p className="text-[#AEC6E4] text-sm">
+               Manage your API keys for the Chrome Extension and Prompt Opinion MCP.
+             </p>
+           </div>
+           <div className="flex items-center gap-3">
+              <span className="text-[#AEC6E4] text-sm font-medium">Manage Key</span>
+              <ChevronRight size={20} className="text-[#AEC6E4]" />
+           </div>
+        </motion.div>
 
         <motion.section 
           initial={{ opacity: 0, y: 20 }}
@@ -171,7 +154,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           <ChatBot />
         </motion.section>
 
-        {groupKeys.length > 0 && (
+        {allObservations?.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -179,10 +162,11 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
             className="bg-[#EAF6ED] p-10 rounded-3xl" // Extremely light mint
           >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px]">Health Trends</h2>
-              <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">{groupKeys.length} metrics tracked</p>
+              <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px]">Health Analytics</h2>
+              <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">{allObservations.length} data points</p>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <HealthDistribution data={allObservations} />
               {groupKeys.map((key) => (
                 <HealthTimeline key={key} title={key} data={timelineGroups[key]} />
               ))}
@@ -194,7 +178,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           <motion.section 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: groupKeys.length > 0 ? 0.6 : 0.5 }}
+            transition={{ delay: allObservations?.length > 0 ? 0.6 : 0.5 }}
             className="bg-[#FFF8F3] p-10 rounded-3xl" // Very warm soft pastel
           >
             <div className="flex justify-between items-center mb-6">
@@ -231,7 +215,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           <motion.section 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: groupKeys.length > 0 ? 0.7 : 0.6 }}
+            transition={{ delay: allObservations?.length > 0 ? 0.7 : 0.6 }}
             className="bg-[#F4F8F7] p-10 rounded-3xl" // Very soft teal/sage
           >
             <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px] mb-6">Key Insights</h2>
@@ -255,6 +239,90 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           </motion.section>
         </div>
       </main>
+
+      {/* API Key Modal */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#000000]/40 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="bg-white rounded-3xl p-8 max-w-lg w-full relative"
+          >
+            <button 
+              onClick={() => setIsKeyModalOpen(false)}
+              className="absolute top-6 right-6 text-[#AEC6E4] hover:text-[#2A3F5C] transition-colors"
+            >
+              <X size={24} />
+            </button>
+            
+            <div className="mb-6 pr-6">
+              <h2 className="text-2xl font-bold text-[#2C2C2C] mb-2 flex items-center gap-2">
+                <Key size={24} className="text-[#2A3F5C]" />
+                API Integration Key
+              </h2>
+              <p className="text-[#8B8B8B] text-sm leading-relaxed">
+                Use this key to authenticate external services like the Chrome Extension or Prompt Opinion MCP. Treat this key like a password.
+              </p>
+            </div>
+
+            <div className="bg-[#F4F8F7] rounded-2xl p-6 mb-6 border border-[#E8F0FE]">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-[#2C2C2C] font-semibold text-sm">Your Secret Key</span>
+                {token && (
+                  <button onClick={() => setShowKey(!showKey)} className="text-[#6B85A8] hover:text-[#2A3F5C] flex items-center gap-1 text-xs font-medium bg-white px-2 py-1 rounded-md border border-[#D1E0F5]">
+                    {showKey ? <><EyeOff size={14} /> Hide</> : <><Eye size={14} /> Reveal</>}
+                  </button>
+                )}
+              </div>
+              
+              {token ? (
+                <div className="flex items-center bg-white rounded-xl overflow-hidden border border-[#D1E0F5]">
+                  <div className="flex-1 overflow-x-auto no-scrollbar">
+                    <code className="px-4 py-3 text-sm text-[#2A3F5C] bg-[#F7FAFF] font-mono select-all inline-block min-w-full">
+                      {showKey ? token : '••••••••••••••••••••••••••••••••••••••••••••••••'}
+                    </code>
+                  </div>
+                  <button
+                    onClick={copyToken}
+                    className="px-4 py-3 hover:bg-[#E8F0FE] transition-colors bg-white text-[#6B85A8] border-l border-[#D1E0F5] shrink-0"
+                    title="Copy token"
+                  >
+                    {copiedToken ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl border border-[#D1E0F5] border-dashed p-4 text-center">
+                  <p className="text-[#6B85A8] text-sm italic">No key generated yet</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-[#FFF4E0] border border-[#FADBA3] rounded-xl p-4 flex gap-3 mb-8">
+              <AlertCircle size={20} className="text-[#D39D43] shrink-0 mt-0.5" />
+              <p className="text-[#A67527] text-[13px] leading-relaxed">
+                Generating a new key will immediately invalidate your old one. All extensions or integrations using the old key will stop working.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setIsKeyModalOpen(false)}
+                className="px-5 py-2.5 rounded-xl text-sm font-medium text-[#6B85A8] hover:bg-[#F4F8F7] transition-colors whitespace-nowrap"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleGenerateToken}
+                disabled={generatingToken}
+                className="bg-[#2A3F5C] text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#1D2B44] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {generatingToken ? 'Generating...' : token ? 'Rotate Key' : 'Generate New Key'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
