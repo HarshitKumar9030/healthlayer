@@ -32,7 +32,7 @@ export function Footer() {
             <Link href="/terms" className="text-[#333333] hover:text-[#000000] text-[14px] font-medium transition-colors">Terms</Link>
           </motion.div>
           <motion.div whileHover={{ y: -1 }}>
-            <Link href="mailto:hello@healthlayer.com" className="text-[#333333] hover:text-[#000000] text-[14px] font-medium transition-colors">Contact</Link>
+            <Link href="/contact" className="text-[#333333] hover:text-[#000000] text-[14px] font-medium transition-colors">Contact</Link>
           </motion.div>
         </nav>
         
