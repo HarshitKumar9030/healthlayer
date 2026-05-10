@@ -10,7 +10,7 @@ export default function SignUpPage() {
     <div className="min-h-screen bg-[#f5f2f0] flex flex-col selection:bg-[#f1ccff] selection:text-[#000000]">
       <Nav />
       <main className="flex-1 pt-35 pb-20 px-4 flex items-center justify-center">
-        <AuthShell title="Create account" description="Join HealthLayer and start your health journey">
+        {/* <AuthShell title="Create account" description="Join HealthLayer and start your health journey"> */}
           <SignUp
             appearance={{
               variables: {
@@ -42,7 +42,7 @@ export default function SignUpPage() {
             path="/sign-up"
             signInUrl="/sign-in"
           />
-        </AuthShell>
+        {/* </AuthShell> */}
       </main>
       <Footer />
     </div>

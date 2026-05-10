@@ -10,7 +10,6 @@ export default function SignInPage() {
     <div className="min-h-screen bg-[#f5f2f0] flex flex-col selection:bg-[#f1ccff] selection:text-[#000000]">
       <Nav />
       <main className="flex-1 pt-35 pb-20 px-4 flex items-center justify-center">
-        <AuthShell title="Welcome back" description="Sign in to your HealthLayer account">
           <SignIn
             appearance={{
               variables: {
@@ -42,7 +41,6 @@ export default function SignInPage() {
             path="/sign-in"
             signUpUrl="/sign-up"
           />
-        </AuthShell>
       </main>
       <Footer />
     </div>
