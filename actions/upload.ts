@@ -6,6 +6,7 @@ import { Report } from '@/models/Report';
 import { Observation } from '@/models/Observation';
 import { GoogleGenAI } from '@google/genai';
 import { parseMedicalReport } from '@/lib/ai';
+import { buildPatientKey, buildPatientLabel, type PatientIdentity } from '@/lib/patient';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 const model = 'gemini-3-flash-preview';
@@ -62,13 +63,33 @@ export async function uploadAndProcessReport(formData: FormData, explicitUserId?
     // Step 2: Parse text to JSON
     const parsedData = await parseMedicalReport(extractedText);
 
+    const patientIdentity: PatientIdentity = {
+      name: parsedData.patientInfo?.name,
+      dob: parsedData.patientInfo?.dob,
+      identifier: parsedData.patientInfo?.identifier,
+      pointer: parsedData.patientInfo?.pointer,
+    };
+    const patientKey = buildPatientKey(patientIdentity, file.name);
+    const patientLabel = buildPatientLabel(patientIdentity);
+
     // Step 3: Save Report
     const report = await Report.create({
       userId,
+      patientKey,
+      patientInfo: {
+        ...patientIdentity,
+        pointer: patientKey,
+      },
       originalFileName: file.name,
       originalFileUrl: 'local', // Or placeholder/s3 url
       extractedText,
-      structuredData: parsedData,
+      structuredData: {
+        ...parsedData,
+        patientInfo: {
+          ...patientIdentity,
+          pointer: patientKey,
+        },
+      },
     });
 
     // Step 4: Save Observations independently for easier querying
@@ -81,7 +102,7 @@ export async function uploadAndProcessReport(formData: FormData, explicitUserId?
       await Observation.insertMany(observationDocs);
     }
 
-    return { success: true, reportId: report._id.toString() };
+    return { success: true, reportId: report._id.toString(), patientKey, patientLabel };
   } catch (error) {
     console.error('Error processing upload:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

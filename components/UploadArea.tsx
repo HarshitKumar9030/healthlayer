@@ -43,6 +43,7 @@ export default function UploadArea() {
         const res = await uploadAndProcessReport(formData);
 
         if (res.success) {
+          
           hasSuccess = true;
           setFiles((prev) =>
             prev.map((f, idx) => (idx === i ? { ...f, status: 'success' } : f))
@@ -95,7 +96,7 @@ export default function UploadArea() {
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-[24px] p-10 flex flex-col items-center justify-center cursor-pointer transition-colors duration-200 ${
+        className={`border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center cursor-pointer transition-colors duration-200 ${
           isDragging ? 'border-[#f1ccff] bg-[#fdf5ff]' : 'border-[#d6d6d6] bg-white'
         }`}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -119,7 +120,7 @@ export default function UploadArea() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <p className="text-[#333333] font-medium text-lg leading-[1.4] -tracking-[0.020em] font-sans">
+              <p className="text-[#333333] font-medium text-lg leading-[1.4] tracking-[-0.02em] font-sans">
                 Processing {files.filter(f => f.status === 'uploading').length > 0
                   ? `report ${files.findIndex(f => f.status === 'uploading') + 1} of ${files.length}`
                   : 'reports'}…
@@ -130,8 +131,8 @@ export default function UploadArea() {
         ) : (
           <>
             <svg className="w-12 h-12 text-[#91e0ff] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-            <p className="text-[#000000] font-semibold text-xl leading-[1.2] -tracking-[0.020em] font-sans text-center mb-2">Drop your medical reports here</p>
-            <p className="text-[#7b7b7b] text-[16px] leading-[1.4] -tracking-[0.16px] font-sans text-center">or click to browse — PDF, PNG, JPG · <span className="font-medium text-[#6B85A8]">multiple files supported</span></p>
+            <p className="text-[#000000] font-semibold text-xl leading-[1.2] tracking-[-0.02em] font-sans text-center mb-2">Drop your medical reports here</p>
+            <p className="text-[#7b7b7b] text-[16px] leading-[1.4] tracking-[-0.16px] font-sans text-center">or click to browse — PDF, PNG, JPG · <span className="font-medium text-[#6B85A8]">multiple files supported</span></p>
           </>
         )}
       </div>
@@ -159,7 +160,7 @@ export default function UploadArea() {
             {files.map((f, idx) => (
               <li key={`${f.file.name}-${idx}`} className="px-5 py-3 flex items-center gap-3">
                 {/* Status icon */}
-                <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm"
+                <div className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm"
                   style={{
                     background: f.status === 'success' ? '#EAF6ED'
                       : f.status === 'error' ? '#FFF0F0'
@@ -195,7 +196,7 @@ export default function UploadArea() {
                 {!uploading && f.status !== 'uploading' && (
                   <button
                     onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
-                    className="flex-shrink-0 text-[#ccc] hover:text-[#999] transition-colors text-lg leading-none"
+                    className="shrink-0 text-[#ccc] hover:text-[#999] transition-colors text-lg leading-none"
                   >
                     ✕
                   </button>

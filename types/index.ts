@@ -10,6 +10,12 @@ export interface Observation {
 }
 
 export interface ParsedMedicalReport {
+  patientInfo?: {
+    name?: string;
+    dob?: string;
+    identifier?: string;
+    pointer?: string;
+  };
   hospitalInfo?: {
     name: string;
     address?: string;
@@ -22,6 +28,13 @@ export interface ParsedMedicalReport {
 export interface Report {
   _id?: string;
   userId: string;
+  patientKey?: string;
+  patientInfo?: {
+    name?: string;
+    dob?: string;
+    identifier?: string;
+    pointer?: string;
+  };
   originalFileName: string;
   originalFileUrl: string;
   extractedText: string;

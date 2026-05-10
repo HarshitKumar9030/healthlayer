@@ -7,6 +7,7 @@ import { queryObservations } from './ai';
 import { authenticateRequest } from './auth';
 import { uploadAndProcessReport } from '@/actions/upload';
 import type { Observation } from '@/types';
+import { normalizePatientToken } from './patient';
 
 type FhirContext = {
   serverUrl?: string;
@@ -157,10 +158,10 @@ function scoreRiskFromObservations(observations: Observation[], patientId?: stri
 }
 
 async function loadSessionObservations(userId: string, fhir?: FhirContext): Promise<Observation[]> {
-  const storedReports = await Report.find({ userId }).lean();
+  const storedReports = await loadSessionReports(userId, fhir);
   const storedObservations = storedReports.flatMap((r) => (r.structuredData?.observations || []) as Observation[]);
 
-  const patientId = fhir?.patientId;
+  const patientId = fhir?.patientId?.trim();
   const serverUrl = fhir?.serverUrl?.replace(/\/$/, '');
   const accessToken = fhir?.accessToken;
   const fhirObservations: Observation[] = [];
@@ -190,6 +191,26 @@ async function loadSessionObservations(userId: string, fhir?: FhirContext): Prom
   }
 
   return [...storedObservations, ...fhirObservations];
+}
+
+async function loadSessionReports(userId: string, fhir?: FhirContext) {
+  const patientId = fhir?.patientId?.trim();
+  const patientKey = patientId ? normalizePatientToken(patientId) : '';
+
+  const reportFilter = patientKey
+    ? {
+        userId,
+        $or: [
+          { patientKey },
+          { 'patientInfo.pointer': patientKey },
+          { 'structuredData.patientInfo.pointer': patientKey },
+          { 'patientInfo.identifier': patientId },
+          { 'structuredData.patientInfo.identifier': patientId },
+        ],
+      }
+    : { userId };
+
+  return Report.find(reportFilter).sort({ createdAt: -1 }).lean();
 }
 
 function createServer(sessionContext: SessionContext) {
@@ -277,25 +298,42 @@ function createServer(sessionContext: SessionContext) {
     await connectDB();
 
     if (request.params.name === 'get_summaries') {
-      const reports = await Report.find({ userId }).sort({ createdAt: -1 }).lean();
+      const reports = await loadSessionReports(userId, sessionContext.fhir);
+      const grouped = reports.reduce<Record<string, { patientKey: string; patientLabel: string; count: number; reports: typeof reports }>>((acc, report) => {
+        const key = report.patientKey || report.structuredData?.patientInfo?.pointer || 'unassigned';
+        const label = report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || 'Unassigned patient';
+        if (!acc[key]) {
+          acc[key] = { patientKey: key, patientLabel: label, count: 0, reports: [] as typeof reports };
+        }
+        acc[key].count += 1;
+        acc[key].reports.push(report);
+        return acc;
+      }, {});
       return {
-        content: [{ type: 'text', text: JSON.stringify(reports.map(r => ({
-          filename: r.originalFileName,
-          date: r.createdAt,
-          summary: r.structuredData?.summary || 'No summary',
+        content: [{ type: 'text', text: JSON.stringify(Object.values(grouped).map((group) => ({
+          patientKey: group.patientKey,
+          patientLabel: group.patientLabel,
+          reportCount: group.count,
+          reports: group.reports.map((r) => ({
+            filename: r.originalFileName,
+            date: r.createdAt,
+            summary: r.structuredData?.summary || 'No summary',
+          })),
         })), null, 2) }],
       };
     } 
     
     if (request.params.name === 'get_abnormal_findings') {
-      const reports = await Report.find({ userId }).lean();
-      const abnormal = reports.flatMap(r => 
+      const reports = await loadSessionReports(userId, sessionContext.fhir);
+      const abnormal = reports.flatMap((r) =>
         (r.structuredData?.observations || [])
-        .filter((o: Observation) => o.flag === 'high' || o.flag === 'low' || o.flag === 'critical')
-        .map((o: Observation) => ({
-          report: r.originalFileName,
-          ...o
-        }))
+          .filter((o: Observation) => o.flag === 'high' || o.flag === 'low' || o.flag === 'critical')
+          .map((o: Observation) => ({
+            patientKey: r.patientKey || r.structuredData?.patientInfo?.pointer || 'unassigned',
+            patientLabel: r.structuredData?.patientInfo?.name || r.patientInfo?.name || r.structuredData?.patientInfo?.pointer || 'Unassigned patient',
+            report: r.originalFileName,
+            ...o,
+          }))
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(abnormal, null, 2) }],
@@ -304,7 +342,7 @@ function createServer(sessionContext: SessionContext) {
     
     if (request.params.name === 'chat_with_reports') {
       const { query } = request.params.arguments as { query: string };
-      const reports = await Report.find({ userId }).lean();
+      const reports = await loadSessionReports(userId, sessionContext.fhir);
       const allObservations = reports.flatMap(r => r.structuredData?.observations || []);
       
       const answer = await queryObservations(allObservations as Observation[], query);

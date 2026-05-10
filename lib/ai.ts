@@ -8,6 +8,12 @@ const ai = new GoogleGenAI({
 const model = 'gemini-3-flash-preview';
 
 interface ParseResult {
+  patientInfo?: {
+    name?: string;
+    dob?: string;
+    identifier?: string;
+    pointer?: string;
+  };
   hospitalInfo?: {
     name: string;
     address?: string;
@@ -29,6 +35,12 @@ export async function parseMedicalReport(text: string): Promise<ParsedMedicalRep
 
 Return ONLY valid JSON in this exact format, no markdown code blocks or extra text:
 {
+  "patientInfo": {
+    "name": "Patient name if present",
+    "dob": "Date of birth if present",
+    "identifier": "MRN / patient identifier if present",
+    "pointer": "Stable patient pointer if you can infer one, otherwise leave empty"
+  },
   "hospitalInfo": {
     "name": "Name of the hospital or lab",
     "address": "Address if present",
@@ -46,6 +58,7 @@ Return ONLY valid JSON in this exact format, no markdown code blocks or extra te
   "summary": "Brief patient-friendly summary of key findings"
 }
 
+If patient details are missing, return empty strings for those fields instead of inventing values.
 Flag values must be: "normal", "high", "low", or "critical"
 Value must be a number if it's a measurement, string if text-based.
 Extract ALL observations from the report.
@@ -84,6 +97,7 @@ Return only the JSON object, no other text.`;
       }));
 
     return {
+      patientInfo: parsed.patientInfo,
       hospitalInfo: parsed.hospitalInfo,
       observations: normalizedObservations,
       summary: parsed.summary || 'Medical report processed successfully.',
@@ -92,6 +106,7 @@ Return only the JSON object, no other text.`;
     console.error('Error parsing medical report:', error);
     // Return a fallback with basic extraction
     return {
+      patientInfo: undefined,
       observations: [],
       summary: 'Failed to parse report. Please try uploading again.',
     };

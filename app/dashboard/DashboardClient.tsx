@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import gsap from 'gsap';
 import { UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
-import { ChevronRight, Key, Check, Copy, Eye, EyeOff, X, AlertCircle } from 'lucide-react';
+import { ChevronRight, Key, Check, Copy, Eye, EyeOff, X, AlertCircle, FolderOpen, User } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import ChatBot from '@/components/ChatBot';
 import HealthTimeline from '@/components/HealthTimeline';
@@ -19,6 +19,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
   const [copiedToken, setCopiedToken] = useState(false);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [activePatientKey, setActivePatientKey] = useState<string | 'ALL'>('ALL');
   
   const handleGenerateToken = async () => {
     setGeneratingToken(true);
@@ -56,11 +57,57 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
     return () => ctx.revert();
   }, []);
 
+  const patientGroups = useMemo(() => {
+    const groups: Record<string, { patientKey: string; patientKeys: string[]; patientLabel: string; reports: any[] }> = {};
+    reports.forEach((report) => {
+      const patientKey = report.patientKey || report.structuredData?.patientInfo?.pointer || 'unassigned';
+      const rawLabel = report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || 'Unassigned patient';
+      const patientLabel = rawLabel.trim();
+      const unifiedKey = patientLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || patientKey;
+
+      if (!groups[unifiedKey]) {
+        groups[unifiedKey] = { patientKey: unifiedKey, patientKeys: [], patientLabel, reports: [] };
+      }
+
+      if (!groups[unifiedKey].patientKeys.includes(patientKey)) {
+        groups[unifiedKey].patientKeys.push(patientKey);
+      }
+      groups[unifiedKey].reports.push(report);
+    });
+
+    return Object.values(groups).sort((a, b) => b.reports.length - a.reports.length);
+  }, [reports]);
+
+  // Derived filtered state
+  const { filteredReports, filteredObservations, filteredAbnormals } = useMemo(() => {
+    if (activePatientKey === 'ALL') {
+      return {
+        filteredReports: reports,
+        filteredObservations: allObservations,
+        filteredAbnormals: abnormalObservations
+      };
+    }
+    
+    const activeGroup = patientGroups.find(g => g.patientKey === activePatientKey);
+    const validKeys = activeGroup ? activeGroup.patientKeys : [activePatientKey];
+
+    const reportIds = new Set(
+      reports.filter(r => validKeys.includes(r.patientKey || r.structuredData?.patientInfo?.pointer || 'unassigned'))
+        .map(r => r._id.toString())
+    );
+
+    return {
+      filteredReports: reports.filter(r => reportIds.has(r._id.toString())),
+      filteredObservations: allObservations.filter(o => reportIds.has(o.reportId?.toString())),
+      filteredAbnormals: abnormalObservations.filter(o => reportIds.has(o.reportId?.toString()))
+    };
+  }, [activePatientKey, patientGroups, reports, allObservations, abnormalObservations]);
+
   const timelineGroups = useMemo(() => {
-    if (!allObservations) return {};
+    if (!filteredObservations) return {};
     
     const groups: { [key: string]: any[] } = {};
-    allObservations.forEach((obs) => {
+    filteredObservations.forEach((obs) => {
       if (!groups[obs.name]) groups[obs.name] = [];
       groups[obs.name].push(obs);
     });
@@ -72,9 +119,11 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
       }
     }
     return validGroups;
-  }, [allObservations]);
+  }, [filteredObservations]);
 
   const groupKeys = Object.keys(timelineGroups);
+
+  const reportCardLabel = (report: any) => report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || report.patientKey || 'Unassigned patient';
 
   return (
     <div ref={containerRef} className="min-h-screen bg-[#FDFBF7] font-sans pb-20">
@@ -89,27 +138,34 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
       </header>
 
       <main className="w-full max-w-5xl mx-auto px-4 mt-8 flex flex-col gap-8">
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[#FFE8E8] rounded-3xl p-8 gsap-fade-in" // Pastel Red/Pink
           >
             <p className="text-[#A26D6D] text-[13px] uppercase tracking-[0.08em] font-medium">Reports</p>
-            <p className="text-[#4A2D2D] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{reports.length}</p>
+            <p className="text-[#4A2D2D] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{filteredReports.length}</p>
           </motion.div>
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[#E8F0FE] rounded-3xl p-8 gsap-fade-in" // Pastel Blue
           >
             <p className="text-[#6B85A8] text-[13px] uppercase tracking-[0.08em] font-medium">Flagged metrics</p>
-            <p className="text-[#2A3F5C] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{abnormalObservations.length}</p>
+            <p className="text-[#2A3F5C] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{filteredAbnormals.length}</p>
           </motion.div>
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[#EAF6ED] rounded-3xl p-8 gsap-fade-in" // Pastel Green
           >
             <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">Data points</p>
-            <p className="text-[#2B4B34] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{allObservations.length}</p>
+            <p className="text-[#2B4B34] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{filteredObservations.length}</p>
+          </motion.div>
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-[#FFF4E0] rounded-3xl p-8 gsap-fade-in"
+          >
+            <p className="text-[#A67527] text-[13px] uppercase tracking-[0.08em] font-medium">Patients indexed</p>
+            <p className="text-[#7C4D12] text-[36px] font-semibold leading-[1.2] tracking-[-0.8px] mt-2">{patientGroups.length}</p>
           </motion.div>
         </section>
 
@@ -154,7 +210,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           <ChatBot />
         </motion.section>
 
-        {allObservations?.length > 0 && (
+        {filteredObservations?.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -163,10 +219,10 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px]">Health Analytics</h2>
-              <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">{allObservations.length} data points</p>
+              <p className="text-[#6D9578] text-[13px] uppercase tracking-[0.08em] font-medium">{filteredObservations.length} data points</p>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <HealthDistribution data={allObservations} />
+              <HealthDistribution data={filteredObservations} />
               {groupKeys.map((key) => (
                 <HealthTimeline key={key} title={key} data={timelineGroups[key]} />
               ))}
@@ -174,11 +230,54 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           </motion.section>
         )}
 
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55 }}
+          className="bg-[#FFF8F3] p-10 rounded-3xl"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px] flex items-center gap-3"><User size={28} /> Patient Index</h2>
+            <div className="flex items-center gap-4">
+              {activePatientKey !== 'ALL' && (
+                <button onClick={() => setActivePatientKey('ALL')} className="text-sm font-medium text-[#D35D5D] hover:underline">
+                  Clear Filter
+                </button>
+              )}
+              <p className="text-[#8B8B8B] text-[13px] uppercase tracking-[0.08em] font-medium">{patientGroups.length} groups</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {patientGroups.map((group) => (
+              <div 
+                key={group.patientKey} 
+                onClick={() => setActivePatientKey(group.patientKey)}
+                className={`rounded-2xl border p-5 cursor-pointer transition-colors ${
+                  activePatientKey === group.patientKey 
+                    ? 'border-[#2A3F5C] bg-[#F4F8F7]' 
+                    : 'border-[#E8E3DD] bg-white hover:border-[#AEC6E4]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-[#2C2C2C] font-semibold text-[18px] leading-[1.2] tracking-[-0.16px]">{group.patientLabel}</p>
+                    <p className="text-[#8B8B8B] text-[12px] mt-1 break-all line-clamp-1" title={group.patientKeys.join(', ')}>
+                      {group.patientKeys.length > 1 ? `${group.patientKeys.length} identifiers linked` : group.patientKeys[0]}
+                    </p>
+                  </div>
+                  <FolderOpen className={activePatientKey === group.patientKey ? "text-[#2A3F5C] shrink-0" : "text-[#AEC6E4] shrink-0"} size={20} />
+                </div>
+                <p className="text-[#6B85A8] text-sm">{group.reports.length} report{group.reports.length === 1 ? '' : 's'} indexed</p>
+              </div>
+            ))}
+          </div>
+        </motion.section>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <motion.section 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: allObservations?.length > 0 ? 0.6 : 0.5 }}
+            transition={{ delay: filteredObservations?.length > 0 ? 0.65 : 0.55 }}
             className="bg-[#FFF8F3] p-10 rounded-3xl" // Very warm soft pastel
           >
             <div className="flex justify-between items-center mb-6">
@@ -193,12 +292,13 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
               </motion.div>
             </div>
             <div className="space-y-4">
-              {reports.map((report) => (
+              {filteredReports.slice(0, 5).map((report) => (
                 <Link href={`/reports/${report._id.toString()}`} key={report._id.toString()} className="block bg-[#FFFFFF] rounded-2xl p-6 hover:bg-[#FDFBF7] transition-colors cursor-pointer group">
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-[#2C2C2C] font-semibold text-[20px] leading-[1.2] tracking-[-0.4px] group-hover:text-[#000000]">{report.originalFileName}</h3>
                     <span className="text-[#8B8B8B] text-[13px] leading-[1.4]">Open</span>
                   </div>
+                  <p className="text-[#6B85A8] text-[12px] uppercase tracking-[0.08em] font-medium mb-2">{reportCardLabel(report)}</p>
                   <p className="text-[#8B8B8B] text-[13px] leading-[1.4] mb-4">
                     {mounted ? (report.structuredData?.hospitalInfo?.date || new Date(report.createdAt).toLocaleDateString()) : ''}
                     {report.structuredData?.hospitalInfo?.name && ` • ${report.structuredData.hospitalInfo.name}`}
@@ -206,7 +306,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
                   <p className="text-[#4A4A4A] text-[16px] leading-[1.4] tracking-[-0.16px] line-clamp-2">{report.structuredData.summary}</p>
                 </Link>
               ))}
-              {reports.length === 0 && (
+              {filteredReports.length === 0 && (
                 <p className="text-[#8B8B8B] text-[16px] leading-[1.4] tracking-[-0.16px]">No reports uploaded yet.</p>
               )}
             </div>
@@ -215,12 +315,12 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
           <motion.section 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: allObservations?.length > 0 ? 0.7 : 0.6 }}
+            transition={{ delay: filteredObservations?.length > 0 ? 0.7 : 0.6 }}
             className="bg-[#F4F8F7] p-10 rounded-3xl" // Very soft teal/sage
           >
             <h2 className="text-[#2C2C2C] text-[32px] font-bold leading-[1.44] tracking-[-0.8px] mb-6">Key Insights</h2>
             <div className="space-y-4">
-              {abnormalObservations.map((obs) => (
+              {filteredAbnormals.map((obs) => (
                 <div key={obs._id.toString()} className="bg-[#FFFFFF] rounded-2xl p-4 flex justify-between items-center">
                   <div>
                     <h3 className="text-[#2C2C2C] font-semibold text-[16px] leading-[1.4] tracking-[-0.16px]">{obs.name}</h3>
@@ -232,7 +332,7 @@ export default function DashboardClient({ reports, abnormalObservations, allObse
                   </div>
                 </div>
               ))}
-              {abnormalObservations.length === 0 && (
+              {filteredAbnormals.length === 0 && (
                 <p className="text-[#8B8B8B] text-[16px] leading-[1.4] tracking-[-0.16px]">No abnormal insights detected.</p>
               )}
             </div>
