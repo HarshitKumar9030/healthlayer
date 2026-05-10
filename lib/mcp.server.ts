@@ -428,7 +428,7 @@ export const MCP = {
     // We construct an absolute URL using the request headers to ensure clients like Cursor/Claude can resolve it.
     const url = new URL(request.url);
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || url.host;
-    const protocol = request.headers.get('x-forwarded-proto') || 'https';
+    const protocol = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '') || 'http';
     const baseUrl = `${protocol}://${host}`;
     const transport = new NextJS_SSE_Transport(`${baseUrl}/api/mcp/messages`);
     activeTransports.set(transport.sessionId, transport);
