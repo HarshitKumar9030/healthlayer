@@ -197,20 +197,42 @@ async function loadSessionReports(userId: string, fhir?: FhirContext) {
   const patientId = fhir?.patientId?.trim();
   const patientKey = patientId ? normalizePatientToken(patientId) : '';
 
-  const reportFilter = patientKey
-    ? {
-        userId,
-        $or: [
-          { patientKey },
-          { 'patientInfo.pointer': patientKey },
-          { 'structuredData.patientInfo.pointer': patientKey },
-          { 'patientInfo.identifier': patientId },
-          { 'structuredData.patientInfo.identifier': patientId },
-        ],
-      }
-    : { userId };
+  const allReports = await Report.find({ userId }).sort({ createdAt: -1 }).lean();
 
-  return Report.find(reportFilter).sort({ createdAt: -1 }).lean();
+  if (!patientKey && !patientId) return allReports;
+
+  // Find unified key matching the active FHIR patient context
+  let targetUnifiedKey: string | null = null;
+  for (const report of allReports) {
+    const rawKey = report.patientKey || report.structuredData?.patientInfo?.pointer || 'unassigned';
+    const rawLabel = report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || 'Unassigned patient';
+    const unifiedKey = rawLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || rawKey;
+
+    if (
+      rawKey === patientKey ||
+      report.patientInfo?.pointer === patientKey ||
+      report.structuredData?.patientInfo?.pointer === patientKey ||
+      report.patientInfo?.identifier === patientId ||
+      report.structuredData?.patientInfo?.identifier === patientId
+    ) {
+      targetUnifiedKey = unifiedKey;
+      break;
+    }
+  }
+
+  return allReports.filter(report => {
+    const rawKey = report.patientKey || report.structuredData?.patientInfo?.pointer || 'unassigned';
+    const rawLabel = report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || 'Unassigned patient';
+    const unifiedKey = rawLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || rawKey;
+    
+    // Either match the unified key, or fall back to explicit strict matching if unifiedKey missing
+    return (
+      (targetUnifiedKey && unifiedKey === targetUnifiedKey) ||
+      rawKey === patientKey ||
+      report.patientInfo?.identifier === patientId ||
+      report.structuredData?.patientInfo?.identifier === patientId
+    );
+  });
 }
 
 function createServer(sessionContext: SessionContext) {
