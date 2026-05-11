@@ -489,6 +489,75 @@ export const MCP = {
         refreshUrl: fhirRefreshUrl,
       };
 
+      // Compatibility layer: some MCP clients (PromptOpinion) send method names like
+      // `listTools` or `callTool`. If we detect those, handle them directly here
+      // so clients that don't use the SDK-native method names still work.
+      if (body && typeof body === 'object' && (body.method === 'listTools' || body.method === 'callTool')) {
+        await connectDB();
+
+        const sendRpcResult = async (id: unknown, resultObj: unknown) => {
+          try {
+            await transport.send({ jsonrpc: '2.0', id, result: resultObj } as any);
+          } catch (err) {
+            console.error('Failed to send RPC result via transport', err);
+          }
+        };
+
+        if (body.method === 'listTools') {
+          const tools = [
+            { name: 'get_summaries', description: 'Get AI summaries and key details of all available medical reports for the user.' },
+            { name: 'get_abnormal_findings', description: 'Get all critical or abnormal laboratory test results and flags from the user\'s reports.' },
+            { name: 'chat_with_reports', description: 'Ask the Medical AI an open-ended question about the user\'s medical reports using RAG.' },
+            { name: 'analyze_patient_risk', description: 'Analyze patient risk using context injected via FHIR headers and stored reports.' },
+            { name: 'upload_report', description: 'Upload a report by URL for processing (server will fetch the file).' },
+          ];
+          await sendRpcResult((body as any).id, { tools });
+          return new Response('Accepted', { status: 202 });
+        }
+
+        if (body.method === 'callTool') {
+          const toolName = (body as any).params?.name;
+
+          if (toolName === 'get_summaries') {
+            const reports = await loadSessionReports(sessionContext.auth.userId, sessionContext.fhir);
+            const grouped = reports.reduce((acc: Record<string, any>, report: any) => {
+              const key = report.patientKey || report.structuredData?.patientInfo?.pointer || 'unassigned';
+              const label = report.structuredData?.patientInfo?.name || report.patientInfo?.name || report.structuredData?.patientInfo?.pointer || 'Unassigned patient';
+              if (!acc[key]) acc[key] = { patientKey: key, patientLabel: label, count: 0, reports: [] };
+              acc[key].count += 1;
+              acc[key].reports.push(report);
+              return acc;
+            }, {} as Record<string, any>);
+
+            const content = Object.values(grouped).map((group) => ({
+              patientKey: group.patientKey,
+              patientLabel: group.patientLabel,
+              reportCount: group.count,
+              reports: group.reports.map((r: any) => ({ filename: r.originalFileName, date: r.createdAt, summary: r.structuredData?.summary || 'No summary' })),
+            }));
+
+            await sendRpcResult((body as any).id, { content });
+            return new Response('Accepted', { status: 202 });
+          }
+
+          if (toolName === 'get_abnormal_findings') {
+            const reports = await loadSessionReports(sessionContext.auth.userId, sessionContext.fhir);
+            const abnormal = reports.flatMap((r: any) =>
+              (r.structuredData?.observations || [])
+                .filter((o: Observation) => o.flag === 'high' || o.flag === 'low' || o.flag === 'critical')
+                .map((o: Observation) => ({
+                  patientKey: r.patientKey || r.structuredData?.patientInfo?.pointer || 'unassigned',
+                  patientLabel: r.structuredData?.patientInfo?.name || r.patientInfo?.name || r.structuredData?.patientInfo?.pointer || 'Unassigned patient',
+                  report: r.originalFileName,
+                  ...o,
+                }))
+            );
+            await sendRpcResult((body as any).id, { content: abnormal });
+            return new Response('Accepted', { status: 202 });
+          }
+        }
+      }
+
       await transport.handlePostMessage(body);
       return new Response('Accepted', { status: 202 });
     } catch (err) {
